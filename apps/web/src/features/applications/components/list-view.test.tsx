@@ -1,6 +1,7 @@
 import type { Application } from "../types";
 // @vitest-environment happy-dom
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vite-plus/test";
 import { i18n } from "@lingui/core";
 import { I18nProvider } from "@lingui/react";
@@ -112,12 +113,19 @@ it.each(["desktop", "mobile"] as const)("opens the clicked row's application on 
 	expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "app-2" }));
 });
 
-it("opens once when the role button itself is clicked", () => {
+it.each(["desktop", "mobile"] as const)("opens once from the role button on %s", async (breakpoint) => {
 	const onOpen = vi.fn();
-	renderList(twoApplications(), "desktop", onOpen);
+	renderList(twoApplications(), breakpoint, onOpen);
+	const user = userEvent.setup();
+	const button = screen.getByRole("button", { name: /Product Designer/ });
 
-	fireEvent.click(screen.getByRole("button", { name: /Product Designer/ }));
-
+	await user.click(button);
+	expect(onOpen).toHaveBeenCalledOnce();
+	onOpen.mockClear();
+	await user.keyboard("{Enter}");
+	expect(onOpen).toHaveBeenCalledOnce();
+	onOpen.mockClear();
+	await user.keyboard(" ");
 	expect(onOpen).toHaveBeenCalledOnce();
 	expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "app-2" }));
 });
@@ -142,3 +150,32 @@ it.each(["desktop", "mobile"] as const)(
 		expect(container.querySelector("[class*='after:absolute']")).toBeNull();
 	},
 );
+it("sorts by role with company as the tiebreak, and by soonest next step with none last", () => {
+	const { container } = renderList([
+		application({ id: "a", role: "Designer", company: "Zeta", location: null }),
+		application({
+			id: "b",
+			role: "Designer",
+			company: "Acme",
+			location: null,
+			followUpAt: new Date("2099-01-02T00:00:00.000Z"),
+		}),
+		application({
+			id: "c",
+			role: "Analyst",
+			company: "Mid",
+			location: null,
+			followUpAt: new Date("2099-01-01T00:00:00.000Z"),
+		}),
+	]);
+	const order = () =>
+		Array.from(container.querySelectorAll("tbody td button span:last-child"), (span) => span.textContent);
+
+	fireEvent.click(screen.getByRole("button", { name: "Role" }));
+	expect(order()).toEqual(["Mid", "Acme", "Zeta"]);
+
+	fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+	expect(order()).toEqual(["Mid", "Acme", "Zeta"]);
+	fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+	expect(order()).toEqual(["Zeta", "Acme", "Mid"]);
+});
